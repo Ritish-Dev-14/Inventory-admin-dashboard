@@ -1,0 +1,6 @@
+{
+  "name": "Inventory Admin",
+  "description": "A stationery supplier's inventory management web app.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
