@@ -1,28 +1,36 @@
 import express from "express";
 import path from "path";
+import { existsSync, copyFileSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import multer from "multer";
 import * as xlsx from "xlsx";
 import cors from "cors";
 import Database from "better-sqlite3";
-import sqlite3 from "sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { items, stockHistory } from "./frontend/db/schema";
-import { eq, desc, asc, like, and, or, sql, isNull, lt, gte } from "drizzle-orm";
-import fs from "fs";
+import { eq, desc, asc, like, and, sql, isNull, lt, gte } from "drizzle-orm";
 import { createServer as createViteServer } from "vite";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 app.use(cors());
 app.use(express.json());
 
 // Initialize SQLite database
-const sqlite = new Database("./data/inventory.db");
+const databasePath = process.env.DATABASE_PATH || (process.env.VERCEL ? "/tmp/inventory.db" : path.join(process.cwd(), "data/inventory.db"));
+const seedDatabasePath = path.join(process.cwd(), "data/inventory.db");
+
+if (process.env.VERCEL && !existsSync(databasePath) && existsSync(seedDatabasePath)) {
+  mkdirSync(path.dirname(databasePath), { recursive: true });
+  copyFileSync(seedDatabasePath, databasePath);
+}
+
+const sqlite = new Database(databasePath);
 const db = drizzle(sqlite);
 
 // Multer for file uploads
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: process.env.VERCEL ? "/tmp/inventory-uploads/" : "uploads/" });
+mkdirSync(process.env.VERCEL ? "/tmp/inventory-uploads/" : "uploads/", { recursive: true });
 
 // Dashboard Stats
 app.get("/api/v1/dashboard/stats", async (req, res) => {
@@ -280,7 +288,7 @@ app.post("/api/v1/import", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ detail: "No file uploaded" });
     
-    const buf = fs.readFileSync(req.file.path);
+    const buf = readFileSync(req.file.path);
     const wb = xlsx.read(buf, { type: "buffer" });
     const mode = req.body.mode || "merge"; // "replace" or "merge"
     
@@ -334,7 +342,7 @@ app.post("/api/v1/import", upload.single("file"), async (req, res) => {
       }
     }
     
-    fs.unlinkSync(req.file.path);
+    unlinkSync(req.file.path);
     res.json({ detail: `Imported ${importedCount} items` });
   } catch (error) {
     console.error(error);
@@ -343,7 +351,7 @@ app.post("/api/v1/import", upload.single("file"), async (req, res) => {
 });
 
 app.get("/api/v1/backup", (req, res) => {
-  res.download(path.join(__dirname, "data/inventory.db"));
+  res.download(databasePath);
 });
 
 // Vite Middleware
@@ -357,7 +365,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.use((req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
@@ -367,4 +375,8 @@ async function startServer() {
   });
 }
 
-startServer();
+export default app;
+
+if (!process.env.VERCEL) {
+  startServer();
+}
